@@ -74,7 +74,7 @@ struct DeviceGalleryView: View {
         .toolbar {
             PhotosPicker(
                 selection: $store.selectedItems,
-                maxSelectionCount: 50,
+                maxSelectionCount: 0,
                 matching: .images
             ) {
                 Image(systemName: "plus")
