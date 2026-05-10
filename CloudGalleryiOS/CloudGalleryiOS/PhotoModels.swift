@@ -23,6 +23,7 @@ struct LocalPhotoRecord: Codable, Identifiable, Hashable {
     var fileName: String
     var createdAt: Date
     var contentHash: String?
+    var assetLocalIdentifier: String?
 }
 
 struct RemotePhotoRecord: Codable, Identifiable, Hashable {
@@ -42,6 +43,12 @@ struct RemotePhotoRecord: Codable, Identifiable, Hashable {
 struct GalleryBackup: Codable {
     var photos: [LocalPhotoRecord]
     var remotePhotos: [RemotePhotoRecord]
+}
+
+struct DevicePhotoAsset: Identifiable, Hashable {
+    let id: String
+    var creationDate: Date?
+    var mediaSubtypes: Int
 }
 
 struct TelegramCredentials: Equatable {

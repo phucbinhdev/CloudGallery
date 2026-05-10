@@ -1,4 +1,4 @@
-import PhotosUI
+import Photos
 import SwiftUI
 
 struct RootView: View {
@@ -62,8 +62,8 @@ struct DeviceGalleryView: View {
             VStack(alignment: .leading, spacing: 18) {
                 header
                 LazyVGrid(columns: columns, spacing: 3) {
-                    ForEach(store.localPhotos) { photo in
-                        LocalPhotoTile(photo: photo)
+                    ForEach(store.devicePhotos) { photo in
+                        DevicePhotoTile(photo: photo, isSynced: store.syncedDeviceAssetIDs.contains(photo.id))
                     }
                 }
             }
@@ -71,32 +71,42 @@ struct DeviceGalleryView: View {
             .padding(.vertical, 18)
         }
         .navigationTitle("Device")
+        .task {
+            await store.loadDevicePhotos()
+        }
         .toolbar {
-            PhotosPicker(
-                selection: $store.selectedItems,
-                maxSelectionCount: 0,
-                matching: .images
-            ) {
-                Image(systemName: "plus")
+            Button {
+                Task { await store.loadDevicePhotos() }
+            } label: {
+                Image(systemName: "arrow.clockwise")
             }
             .disabled(store.isBusy)
 
             Button {
-                Task { await store.uploadSelectedPhotos() }
+                Task { await store.syncUnsyncedDevicePhotos() }
             } label: {
-                Image(systemName: "icloud.and.arrow.up")
+                Image(systemName: "arrow.triangle.2.circlepath.icloud")
             }
-            .disabled(store.selectedItems.isEmpty || store.isBusy)
+            .disabled(store.devicePhotos.isEmpty || store.isBusy)
         }
     }
 
+    @ViewBuilder
     private var header: some View {
+        let syncedCount = store.devicePhotos.filter { store.syncedDeviceAssetIDs.contains($0.id) }.count
+        let unsyncedCount = max(store.devicePhotos.count - syncedCount, 0)
+
         VStack(alignment: .leading, spacing: 10) {
-            Text("\(store.localPhotos.count) backed up")
+            Text("\(store.devicePhotos.count) device photos")
                 .font(.title2.bold())
-            Text("Pick images from Photos, then upload them as Telegram documents so Telegram does not compress them.")
+            Text("\(syncedCount) synced. \(unsyncedCount) waiting.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+            if let progress = store.syncProgress {
+                Label("Syncing \(progress)", systemImage: "arrow.triangle.2.circlepath.icloud")
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(.blue)
+            }
             if !store.credentials.isComplete {
                 Label("Add Telegram credentials in Settings before uploading.", systemImage: "exclamationmark.triangle")
                     .font(.footnote.weight(.medium))
@@ -107,28 +117,69 @@ struct DeviceGalleryView: View {
     }
 }
 
-private struct LocalPhotoTile: View {
-    let photo: LocalPhotoRecord
+private struct DevicePhotoTile: View {
+    let photo: DevicePhotoAsset
+    let isSynced: Bool
+    @State private var thumbnail: UIImage?
 
     var body: some View {
-        ZStack(alignment: .bottomLeading) {
-            RoundedRectangle(cornerRadius: 6)
-                .fill(.quaternary)
-                .aspectRatio(1, contentMode: .fit)
-                .overlay {
-                    Image(systemName: photo.remoteId == nil ? "photo" : "checkmark.icloud")
-                        .font(.title2)
-                        .foregroundStyle(.secondary)
+        ZStack(alignment: .topTrailing) {
+            Group {
+                if let thumbnail {
+                    Image(uiImage: thumbnail)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    Rectangle()
+                        .fill(.quaternary)
+                        .overlay {
+                            Image(systemName: "photo")
+                                .font(.title2)
+                                .foregroundStyle(.secondary)
+                        }
                 }
+            }
+            .aspectRatio(1, contentMode: .fit)
+            .clipped()
 
-            Text(photo.fileName)
-                .font(.caption2)
-                .lineLimit(1)
+            Image(systemName: isSynced ? "checkmark.icloud.fill" : "icloud.slash.fill")
+                .symbolRenderingMode(.hierarchical)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(isSynced ? .green : .secondary)
                 .padding(6)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.thinMaterial)
+                .background(.thinMaterial, in: Circle())
+                .padding(6)
         }
         .clipShape(RoundedRectangle(cornerRadius: 6))
+        .task(id: photo.id) {
+            thumbnail = await loadThumbnail(localIdentifier: photo.id)
+        }
+    }
+
+    private func loadThumbnail(localIdentifier: String) async -> UIImage? {
+        await withCheckedContinuation { continuation in
+            guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [localIdentifier], options: nil).firstObject else {
+                continuation.resume(returning: nil)
+                return
+            }
+
+            var didResume = false
+            let options = PHImageRequestOptions()
+            options.deliveryMode = .fastFormat
+            options.resizeMode = .fast
+            options.isNetworkAccessAllowed = true
+
+            PHImageManager.default().requestImage(
+                for: asset,
+                targetSize: CGSize(width: 260, height: 260),
+                contentMode: .aspectFill,
+                options: options
+            ) { image, _ in
+                guard !didResume else { return }
+                didResume = true
+                continuation.resume(returning: image)
+            }
+        }
     }
 }
 

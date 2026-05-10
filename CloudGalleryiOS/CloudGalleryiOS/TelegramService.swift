@@ -28,6 +28,38 @@ struct TelegramService {
             throw TelegramError.imageEncodingFailed
         }
 
+        return try await uploadDocument(
+            data: imageData,
+            fileName: fileName,
+            mimeType: "image/jpeg",
+            caption: caption,
+            photoType: .manualBackup
+        )
+    }
+
+    func uploadImageData(
+        _ imageData: Data,
+        fileName: String,
+        mimeType: String,
+        caption: String?,
+        photoType: PhotoType
+    ) async throws -> RemotePhotoRecord {
+        try await uploadDocument(
+            data: imageData,
+            fileName: fileName,
+            mimeType: mimeType,
+            caption: caption,
+            photoType: photoType
+        )
+    }
+
+    private func uploadDocument(
+        data imageData: Data,
+        fileName: String,
+        mimeType: String,
+        caption: String?,
+        photoType: PhotoType
+    ) async throws -> RemotePhotoRecord {
         var request = URLRequest(url: try endpoint("sendDocument"))
         request.httpMethod = "POST"
         let boundary = "Boundary-\(UUID().uuidString)"
@@ -36,7 +68,7 @@ struct TelegramService {
             .appendField(named: "chat_id", value: credentials.chatId)
             .appendField(named: "disable_content_type_detection", value: "false")
             .appendOptionalField(named: "caption", value: caption)
-            .appendFile(named: "document", fileName: fileName, mimeType: "image/jpeg", data: imageData)
+            .appendFile(named: "document", fileName: fileName, mimeType: mimeType, data: imageData)
             .finalize()
 
         let (data, _) = try await URLSession.shared.data(for: request)
@@ -47,13 +79,13 @@ struct TelegramService {
 
         return RemotePhotoRecord(
             remoteId: document.fileID,
-            photoType: .manualBackup,
+            photoType: photoType,
             fileName: document.fileName ?? fileName,
             fileSize: document.fileSize,
             uploadedAt: Date(),
             thumbnailCached: false,
             messageId: response.result?.messageID,
-            uploadType: PhotoType.manualBackup.rawValue
+            uploadType: photoType.rawValue
         )
     }
 
