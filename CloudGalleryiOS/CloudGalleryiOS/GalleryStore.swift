@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import PhotosUI
 import SwiftUI
@@ -58,6 +59,7 @@ final class GalleryStore: ObservableObject {
         defer { isBusy = false }
 
         var uploadedCount = 0
+        var skippedDuplicateCount = 0
         for item in selectedItems {
             do {
                 guard let data = try await item.loadTransferable(type: Data.self),
@@ -65,19 +67,27 @@ final class GalleryStore: ObservableObject {
                     continue
                 }
 
+                let contentHash = data.sha256Hex
+                if hasUploadedPhoto(hash: contentHash) {
+                    skippedDuplicateCount += 1
+                    continue
+                }
+
                 let fileName = "cloudgallery-\(UUID().uuidString).jpg"
-                let remote = try await telegramService.uploadImage(
+                var remote = try await telegramService.uploadImage(
                     image,
                     fileName: fileName,
                     caption: "CloudGallery iOS backup"
                 )
+                remote.contentHash = contentHash
 
                 let local = LocalPhotoRecord(
                     localId: UUID().uuidString,
                     remoteId: remote.remoteId,
                     photoType: .manualBackup,
                     fileName: fileName,
-                    createdAt: Date()
+                    createdAt: Date(),
+                    contentHash: contentHash
                 )
                 localPhotos.insert(local, at: 0)
                 upsert(remote)
@@ -91,8 +101,8 @@ final class GalleryStore: ObservableObject {
 
         selectedItems.removeAll()
         persistBackup()
-        if uploadedCount > 0 {
-            statusMessage = "Uploaded \(uploadedCount) photo\(uploadedCount == 1 ? "" : "s")."
+        if uploadedCount > 0 || skippedDuplicateCount > 0 {
+            statusMessage = uploadSummary(uploaded: uploadedCount, skipped: skippedDuplicateCount)
         }
     }
 
@@ -162,6 +172,22 @@ final class GalleryStore: ObservableObject {
         }
     }
 
+    private func hasUploadedPhoto(hash: String) -> Bool {
+        localPhotos.contains { $0.contentHash == hash } ||
+        remotePhotos.contains { $0.contentHash == hash }
+    }
+
+    private func uploadSummary(uploaded: Int, skipped: Int) -> String {
+        var parts: [String] = []
+        if uploaded > 0 {
+            parts.append("Uploaded \(uploaded) photo\(uploaded == 1 ? "" : "s")")
+        }
+        if skipped > 0 {
+            parts.append("Skipped \(skipped) duplicate\(skipped == 1 ? "" : "s")")
+        }
+        return parts.joined(separator: ". ") + "."
+    }
+
     private func markThumbnailCached(_ remoteId: String) {
         guard let index = remotePhotos.firstIndex(where: { $0.remoteId == remoteId }) else {
             return
@@ -228,5 +254,13 @@ private extension String {
         components(separatedBy: CharacterSet.alphanumerics.inverted)
             .filter { !$0.isEmpty }
             .joined(separator: "-")
+    }
+}
+
+private extension Data {
+    var sha256Hex: String {
+        SHA256.hash(data: self)
+            .map { String(format: "%02x", $0) }
+            .joined()
     }
 }

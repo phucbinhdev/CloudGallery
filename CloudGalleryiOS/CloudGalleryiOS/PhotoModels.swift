@@ -22,6 +22,7 @@ struct LocalPhotoRecord: Codable, Identifiable, Hashable {
     var photoType: PhotoType
     var fileName: String
     var createdAt: Date
+    var contentHash: String?
 }
 
 struct RemotePhotoRecord: Codable, Identifiable, Hashable {
@@ -35,6 +36,7 @@ struct RemotePhotoRecord: Codable, Identifiable, Hashable {
     var thumbnailCached: Bool
     var messageId: Int?
     var uploadType: String?
+    var contentHash: String?
 }
 
 struct GalleryBackup: Codable {
